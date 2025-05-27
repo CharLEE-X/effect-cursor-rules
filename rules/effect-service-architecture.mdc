@@ -1,0 +1,699 @@
+---
+description: Comprehensive Effect-TS service architecture patterns covering stores, usecases, handlers, and testing for building scalable applications
+globs: 
+alwaysApply: false
+---
+# Effect-TS Service Architecture Patterns and Best Practices
+
+## 1. Import Patterns
+
+### Always Use Relative Paths for Internal Imports
+- **CRITICAL**: Never use `src/` aliases for internal imports
+- Always use relative paths like `../../stores/blog/blog-store.js`
+- Use package imports only for external dependencies
+
+```typescript
+// ✅ CORRECT - Relative paths for internal imports
+import { BlogStore } from '../../stores/blog/blog-store.js'
+import { createBlogPostUsecase } from '../create/usecase.js'
+
+// ✅ CORRECT - Package imports for external dependencies
+import { BlogPost, BlogPostId } from '@t6c/blog-domain'
+import { Effect as E, Schema as S } from 'effect'
+
+// ❌ WRONG - Never use src/ aliases
+import { BlogStore } from 'src/stores/blog/blog-store.js'
+```
+
+## 2. Store Layer (Data Access)
+
+### Service Class Structure
+```typescript
+export class BlogStore extends E.Service<BlogStore>()('BlogStore', {
+  dependencies: [DynamoDBService, ConfigService],
+  effect: E.gen(function* () {
+    const dynamodb = yield* DynamoDBService
+    const config = yield* ConfigService
+    
+    return {
+      create: (blogPost: BlogPost) => E.gen(function* () {
+        // Implementation
+      }),
+      getById: (id: BlogPostId) => E.gen(function* () {
+        // Implementation  
+      }),
+    }
+  }),
+}) {}
+```
+
+### Store Responsibilities
+- ✅ Data persistence and retrieval only
+- ✅ Schema encoding/decoding
+- ✅ External service integration (DynamoDB, Algolia, S3)
+- ✅ Return raw data without business logic processing
+- ❌ No pagination calculations or business logic
+
+## 3. Usecase Layer (Business Logic)
+
+### Usecase Structure with Observability
+```typescript
+/**
+ * Creates a new blog post with default values
+ * @param input - Blog post creation input
+ * @returns Created blog post with generated ID and timestamps
+ */
+export const createBlogPostUsecase = (input: CreateBlogPostInput) =>
+  E.gen(function* () {
+    // Start logging - concise format
+    yield* E.logInfo('createBlogPostUsecase started', JSON.stringify(input))
+    
+    const blogStore = yield* BlogStore
+    
+    // Annotate key data points for tracing
+    const blogPostData = BlogPost.make({
+      id: BlogPostId.make(randomUUID()),
+      ...input,
+      // ... other fields
+    })
+    yield* E.annotateCurrentSpan('blogPostData', JSON.stringify(blogPostData))
+    
+    const createdBlogPost = yield* blogStore.create(blogPostData)
+    yield* E.annotateCurrentSpan('createdBlogPost', JSON.stringify(createdBlogPost))
+    
+    // Completion logging - concise format
+    yield* E.logInfo('createBlogPostUsecase completed successfully', JSON.stringify(createdBlogPost))
+    
+    return createdBlogPost
+  }).pipe(
+    E.tapError((error) =>
+      E.logError('createBlogPostUsecase failed', JSON.stringify({ error, input }))
+    ),
+    E.withSpan('createBlogPostUsecase', { attributes: { input } })
+  )
+```
+
+### Logging and Observability Patterns
+
+#### ✅ CORRECT - Concise Logging Format
+```typescript
+// Start logging
+yield* E.logInfo('usecaseName started', JSON.stringify(input))
+
+// Span annotations for key data
+yield* E.annotateCurrentSpan('dataName', JSON.stringify(data))
+
+// Completion logging
+yield* E.logInfo('usecaseName completed successfully', JSON.stringify(result))
+
+// Error logging
+E.tapError((error) =>
+  E.logError('usecaseName failed', JSON.stringify({ error, input }))
+)
+```
+
+#### ❌ WRONG - Verbose Object Format
+```typescript
+// Don't use verbose object format with timestamps
+yield* E.logInfo('usecaseName started', {
+  input: JSON.stringify(input),
+  timestamp: new Date().toISOString(),
+})
+```
+
+### Usecase Responsibilities
+- ✅ Business logic and orchestration
+- ✅ Pagination calculations and data transformation
+- ✅ Concise logging with JSON.stringify for structured data
+- ✅ Span annotations for key data points using E.annotateCurrentSpan
+- ✅ Detailed JSDoc documentation
+- ✅ Error context and handling
+- ❌ No direct database or external service calls
+- ❌ No verbose logging with timestamp objects
+
+## 4. Handler Layer (HTTP Interface)
+
+### Handler Structure
+```typescript
+export const _handler = schemaBody(CreateBlogPostInput).pipe(
+  E.flatMap(createBlogPostUsecase),
+  E.flatMap(createdResponse),
+  E.catchTags({
+    ParseError: (error) => badRequestResponse(error.message),
+    ConflictError: () => conflictResponse('Blog post already exists'),
+  }),
+  E.orDie,
+  E.withSpan('create-blog-post'),
+)
+
+export const handler = _handler.pipe(
+  E.provide(BlogStore.Default),
+  E.withSpan('create-blog-post-handler'),
+  toHandler,
+)
+```
+
+### Handler Responsibilities
+- ✅ Input validation using schemas
+- ✅ Usecase delegation
+- ✅ Response formatting
+- ✅ Error mapping to HTTP responses
+- ✅ Service dependency injection
+
+## 5. API Package Structure
+
+### Standard API Package Layout
+Following the established patterns from `@t6c/user-api`, `@t6c/blog-api`, and `@t6c/comment-api`:
+
+```
+packages/[service]-api/
+├── src/
+│   ├── config.ts                    # Environment variables and config
+│   ├── index.ts                     # Package entry point
+│   ├── lambdas/                     # Lambda handlers by feature
+│   │   ├── create-[entity]/
+│   │   │   ├── handler.ts           # HTTP handler
+│   │   │   ├── handler.test.ts      # Handler tests
+│   │   │   ├── usecase.ts           # Business logic
+│   │   │   └── usecase.test.ts      # Usecase tests
+│   │   ├── get-[entity]-by-id/
+│   │   ├── update-[entity]/
+│   │   └── delete-[entity]/
+│   └── stores/                      # Data access layer
+│       └── [entity]/
+│           ├── index.ts             # Store exports
+│           ├── [entity].store.ts    # Store implementation
+│           ├── [entity].store.test.ts
+│           └── schema/
+│               └── [entity]-schema.ts
+├── package.json
+├── README.md
+├── tsconfig.json
+├── tsconfig.lib.json
+└── tsconfig.spec.json
+```
+
+### API Endpoints Naming Convention
+```typescript
+// ✅ CORRECT - RESTful patterns
+POST   /v1/comments                    # Create comment
+GET    /v1/comments/blog/{blogPostId}  # Get comments by blog post
+PUT    /v1/comments/{commentId}        # Update comment
+DELETE /v1/comments/{commentId}        # Delete comment
+POST   /v1/comments/{commentId}/like   # Like comment
+DELETE /v1/comments/{commentId}/like   # Unlike comment
+
+// Moderation endpoints
+PUT    /v1/comments/{commentId}/status     # Update comment status
+PUT    /v1/comments/{commentId}/ai-review  # Update AI review results
+```
+
+### CDK Infrastructure Integration
+```typescript
+// infra/src/[service]-stack.ts
+export class CommentStack extends cdk.Stack {
+  public readonly api: ApiGatewayV2LambdaConstruct
+  public readonly table: dynamodb.Table
+
+  constructor(scope: Construct, props: CommentStackProps) {
+    // DynamoDB table with GSIs for different access patterns
+    this.table = new dynamodb.Table(this, 'CommentTable', {
+      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+      // GSI1 for querying by blog post
+      // GSI2 for querying by author
+    })
+
+    // Lambda functions for each endpoint
+    const createCommentLambda = new LambdaConstruct(this, 'CreateComment', {
+      entry: '../packages/comment-api/src/lambdas/create-comment/handler.ts',
+      environment: commonEnvironment,
+    })
+
+    // API Gateway with proper routing
+    this.api = new ApiGatewayV2LambdaConstruct(this, 'CommentApi', {
+      routes: [
+        { path: '/v1/comments', method: 'POST', lambda: createCommentLambda.lambda },
+        // ... other routes
+      ],
+    })
+  }
+}
+```
+
+## 6. Algolia Integration Patterns
+
+### Search Store Implementation
+```typescript
+export class SearchStore extends E.Service<SearchStore>()('@app/SearchStore', {
+  dependencies: [AlgoliaService],
+  effect: E.gen(function* () {
+    const algolia = yield* AlgoliaService
+    
+    return {
+      // Index content for search
+      indexContent: (content: SearchableContent) => E.gen(function* () {
+        yield* E.logInfo('Indexing content to Algolia', JSON.stringify({ id: content.id }))
+        
+        const searchRecord = {
+          objectID: content.id,
+          title: content.title,
+          content: content.htmlContent,
+          authorId: content.authorId,
+          createdAt: content.createdAt.getTime(),
+          // Add facets for filtering
+          category: content.category,
+          tags: content.tags,
+          status: content.status,
+        }
+        
+        yield* algolia.saveObject(searchRecord)
+        yield* E.logInfo('Content indexed successfully', JSON.stringify({ id: content.id }))
+      }),
+      
+      // Search with faceting
+      search: (query: SearchQuery) => E.gen(function* () {
+        const searchParams = {
+          query: query.term,
+          page: query.page,
+          hitsPerPage: query.limit,
+          facetFilters: [
+            query.category ? `category:${query.category}` : '',
+            query.tags?.map(tag => `tags:${tag}`) || [],
+            'status:published', // Only show published content
+          ].filter(Boolean),
+        }
+        
+        const results = yield* algolia.search(searchParams)
+        return results
+      }),
+      
+      // Remove from index
+      removeContent: (id: string) => E.gen(function* () {
+        yield* algolia.deleteObject(id)
+        yield* E.logInfo('Content removed from search index', JSON.stringify({ id }))
+      }),
+    }
+  }),
+}) {}
+```
+
+### Search Integration in Usecases
+```typescript
+export const createCommentUsecase = (input: CreateCommentInput) =>
+  E.gen(function* () {
+    const commentStore = yield* CommentStore
+    const searchStore = yield* SearchStore
+    
+    // Create comment in database
+    const comment = yield* commentStore.create(commentData)
+    
+    // Index for search (fire-and-forget for performance)
+    yield* E.fork(
+      searchStore.indexContent({
+        id: comment.id,
+        title: `Comment on ${comment.blogPostId}`,
+        content: comment.htmlContent,
+        authorId: comment.authorId,
+        createdAt: comment.createdAt,
+        category: 'comment',
+        tags: [],
+        status: comment.status,
+      }).pipe(
+        E.tapError(error => 
+          E.logError('Failed to index comment for search', JSON.stringify({ error, commentId: comment.id }))
+        )
+      )
+    )
+    
+    return comment
+  })
+```
+
+### Search Configuration
+```typescript
+// config.ts
+export const envVars = {
+  ALGOLIA_APP_ID: Config.string('ALGOLIA_APP_ID'),
+  ALGOLIA_SEARCH_API_KEY: Config.redacted('ALGOLIA_SEARCH_API_KEY'),
+  ALGOLIA_WRITE_API_KEY: Config.redacted('ALGOLIA_WRITE_API_KEY'),
+  ALGOLIA_INDEX_NAME: Config.string('ALGOLIA_INDEX_NAME'),
+} as const
+```
+
+## 7. AI Moderation Integration
+
+### AI Review Service Pattern
+```typescript
+export class AiModerationService extends E.Service<AiModerationService>()('@app/AiModerationService', {
+  dependencies: [OpenAIService],
+  effect: E.gen(function* () {
+    const openai = yield* OpenAIService
+    
+    return {
+      reviewContent: (content: string) => E.gen(function* () {
+        yield* E.logInfo('Starting AI content review')
+        
+        const prompt = `
+          Analyze this content for:
+          1. Toxicity (0-1 score)
+          2. Sentiment (positive/negative/neutral)
+          3. Categories (spam, harassment, etc.)
+          
+          Content: ${content}
+          
+          Respond with JSON only.
+        `
+        
+        const response = yield* openai.createCompletion({
+          model: 'gpt-3.5-turbo',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+        })
+        
+        const analysis = JSON.parse(response.choices[0].message.content)
+        
+        return AiReviewResult.make({
+          status: analysis.toxicityScore > 0.7 ? 'rejected' : 'approved',
+          reviewedAt: new Date(),
+          confidenceScore: analysis.confidence,
+          toxicityScore: analysis.toxicityScore,
+          sentimentScore: analysis.sentimentScore,
+          categories: analysis.categories,
+          feedback: analysis.reasoning,
+        })
+      }),
+    }
+  }),
+}) {}
+```
+
+### Auto-Moderation in Comment Creation
+```typescript
+export const createCommentUsecase = (input: CreateCommentInput) =>
+  E.gen(function* () {
+    const commentStore = yield* CommentStore
+    const aiModerationService = yield* AiModerationService
+    
+    // Create comment with pending status
+    const comment = Comment.make({
+      ...input,
+      status: 'pending_review',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    
+    const createdComment = yield* commentStore.create(comment)
+    
+    // AI review in background
+    yield* E.fork(
+      E.gen(function* () {
+        const aiReview = yield* aiModerationService.reviewContent(input.htmlContent)
+        
+        // Update comment with AI review results
+        yield* commentStore.updateAiReview(comment.id, aiReview)
+        
+        // Auto-approve if AI review is positive
+        if (aiReview.status === 'approved') {
+          yield* commentStore.updateStatus(comment.id, 'active')
+        }
+      }).pipe(
+        E.tapError(error => 
+          E.logError('AI moderation failed', JSON.stringify({ error, commentId: comment.id }))
+        )
+      )
+    )
+    
+    return createdComment
+  })
+```
+
+## 8. Testing Patterns
+
+### Store Testing
+```typescript
+import { describe, expect, it } from '@effect/vitest'
+
+describe('BlogStore', () => {
+  it('should create a blog post', async () => {
+    const result = await BlogStore.pipe(
+      E.flatMap((store) => store.create(mockBlogPost1)),
+      E.provide(
+        BlogStore.makeTestService({
+          create: () => E.succeed(mockBlogPost1),
+        }),
+      ),
+      E.provide(MockConfigLayer),
+      E.runPromise,
+    )
+    expect(result.title).toEqual(mockBlogPost1.title)
+  })
+
+  it.effect('should handle errors with Effect test', () =>
+    E.gen(function* () {
+      const store = yield* BlogStore
+      const result = yield* E.exit(store.getById('non-existent'))
+      expect(Exit.isFailure(result)).toBe(true)
+    }).pipe(
+      E.provide(BlogStore.makeTestService({
+        getById: () => new NotFoundError({ resource: 'BlogPost', id: 'non-existent' })
+      }))
+    )
+  )
+})
+```
+
+### Usecase Testing
+```typescript
+it.effect('should create blog post with proper logging', () =>
+  E.gen(function* () {
+    const result = yield* createBlogPostUsecase(mockInput)
+    expect(result.id).toBeDefined()
+    expect(result.authorId).toBe(mockInput.authorId)
+  }).pipe(
+    E.provide(BlogStore.makeTestService({
+      create: () => E.succeed(mockBlogPost1)
+    }))
+  )
+)
+```
+
+### Handler Testing
+```typescript
+it('should return 201 for valid input', async () => {
+  const event = lambdaEvent({ body: JSON.stringify(validInput) })
+  const result = await toLambdaHandler(
+    _handler.pipe(E.provide(testLayer))
+  )(event, lambdaContext, () => undefined)
+  
+  expect(result?.statusCode).toBe(201)
+})
+```
+
+### ✅ CORRECT - Proper Mock Service Implementation
+
+When testing usecases that call multiple stores, provide proper mock implementations that return successful values:
+
+```typescript
+describe('getRelatedBlogPostsUsecase', () => {
+  it.effect('should call required stores', () =>
+    E.gen(function* () {
+      const result = yield* getRelatedBlogPostsUsecase({
+        id: BlogPostId.make('test-id'),
+        page: 0,
+        limit: 6,
+      })
+
+      // Verify the result structure (PaginationSchema properties)
+      expect(result).toHaveProperty('items')
+      expect(result).toHaveProperty('totalItems')
+      expect(result).toHaveProperty('totalPages')
+      expect(result).toHaveProperty('currentPage')
+      expect(result).toHaveProperty('perPage')
+      expect(result).toHaveProperty('hasNext')
+      expect(result).toHaveProperty('hasPrev')
+      expect(Array.isArray(result.items)).toBe(true)
+    }).pipe(
+      E.provide(
+        BlogStore.makeTestService({
+          getById: () =>
+            E.succeed(
+              BlogPost.make({
+                id: BlogPostId.make('test-id'),
+                authorId: UserId.make('author-id'),
+                title: Title.make('Test Blog Post'),
+                slug: Slug.make('test-blog-post'),
+                summary: Summary.make('Test summary'),
+                htmlContent: HtmlContent.make('<p>Test content</p>'),
+                status: 'published',
+                category: BlogPostCategory.make({
+                  name: CategoryName.make('Technology'),
+                  slug: CategorySlug.make('technology'),
+                }),
+                tags: [Tag.make('test'), Tag.make('blog')],
+                readTime: ReadTime.make(5),
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                likes: [],
+                dislikes: [],
+                views: 0,
+              }),
+            ),
+        }),
+      ),
+      E.provide(
+        SearchStore.makeTestService({
+          getRelatedPosts: () =>
+            E.succeed({
+              hits: [],
+              nbHits: 0,
+              nbPages: 0,
+              page: 0,
+              hitsPerPage: 6,
+              exhaustiveNbHits: true,
+              exhaustiveTypo: true,
+              processingTimeMS: 1,
+              query: '',
+              params: '',
+            }),
+        }),
+      ),
+      E.provide(UserStore.makeTestService({})),
+    ),
+  )
+})
+```
+
+### ❌ WRONG - Using E.die in Mock Implementations
+
+Never use `E.die` in mock implementations when testing successful flows:
+
+```typescript
+// ❌ WRONG - E.die creates defects that bypass normal error handling
+BlogStore.makeTestService({
+  getById: () => E.die('Test store called'), // This will cause test failures
+})
+
+SearchStore.makeTestService({
+  getRelatedPosts: () => E.die('Test store called'), // This bypasses E.catchAll
+})
+```
+
+### Mock Implementation Guidelines
+
+1. **Use Branded Types Correctly**: Always use the proper `.make()` methods for branded types:
+   ```typescript
+   title: Title.make('Test Blog Post'),        // ✅ CORRECT
+   slug: Slug.make('test-blog-post'),         // ✅ CORRECT
+   title: 'Test Blog Post',                   // ❌ WRONG - missing brand
+   ```
+
+2. **Complete Response Objects**: When mocking external service responses (like Algolia), include all required fields:
+   ```typescript
+   // ✅ CORRECT - Complete SearchResponse
+   getRelatedPosts: () => E.succeed({
+     hits: [],
+     nbHits: 0,
+     nbPages: 0,
+     page: 0,
+     hitsPerPage: 6,
+     exhaustiveNbHits: true,    // Required field
+     exhaustiveTypo: true,      // Required field
+     processingTimeMS: 1,       // Required field
+     query: '',                 // Required field
+     params: '',                // Required field
+   })
+   
+   // ❌ WRONG - Missing required fields
+   getRelatedPosts: () => E.succeed({
+     hits: [],
+     nbHits: 0,
+     nbPages: 0,
+     page: 0,
+     hitsPerPage: 6,
+   })
+   ```
+
+3. **Test Real Behavior**: Mock implementations should simulate the actual behavior of the service:
+   ```typescript
+   // ✅ CORRECT - Returns realistic data structure
+   getById: () => E.succeed(BlogPost.make({ /* complete blog post */ }))
+   
+   // ❌ WRONG - Returns null or throws errors for success cases
+   getById: () => E.succeed(null)
+   getById: () => E.die('Not implemented')
+   ```
+
+4. **Understand Return Types**: Know what your usecases return - many return `PaginationSchema` objects with properties like `items`, `totalItems`, etc., not nested `pagination` objects.
+
+### Common Testing Anti-Patterns to Avoid
+
+1. **E.die in Success Paths**: Never use `E.die` when testing successful execution flows
+2. **Incomplete Mock Data**: Always provide complete, realistic mock data structures
+3. **Wrong Property Assertions**: Understand the actual return type structure (e.g., `PaginationSchema` properties)
+4. **Missing Branded Types**: Use proper `.make()` methods for all branded types
+5. **Ignoring Required Fields**: Include all required fields in mock external service responses
+
+## 9. Error Handling
+
+### Tagged Errors
+```typescript
+export class BlogPostNotFoundError extends Data.TaggedError('BlogPostNotFoundError')<{
+  readonly id: string
+}> {}
+
+export class BlogPostConflictError extends Data.TaggedError('BlogPostConflictError')<{
+  readonly slug: string
+}> {}
+```
+
+### Error Handling in Layers
+```typescript
+// Store: Convert external errors to domain errors
+const result = yield* dynamodb.get(params).pipe(
+  E.catchTag('ItemNotFound', () => 
+    new BlogPostNotFoundError({ id })
+  )
+)
+
+// Usecase: Add context and logging
+const blogPost = yield* blogStore.getById(id).pipe(
+  E.tapError((error) => 
+    E.logError('Failed to retrieve blog post', JSON.stringify({ error, id }))
+  )
+)
+
+// Handler: Map to HTTP responses
+E.catchTags({
+  BlogPostNotFoundError: () => notFoundResponse('Blog post not found'),
+  BlogPostConflictError: () => conflictResponse('Blog post already exists'),
+})
+```
+
+## 10. Architecture Principles
+
+### Separation of Concerns
+- **Stores**: Data access and external service integration
+- **Usecases**: Business logic, validation, and orchestration  
+- **Handlers**: HTTP interface and response formatting
+
+### Dependency Flow
+- Handlers depend on Usecases
+- Usecases depend on Stores
+- Stores depend on external services (DynamoDB, Algolia, etc.)
+- Never skip layers or create circular dependencies
+
+### Error Propagation
+- Use tagged errors for type-safe error handling
+- Convert external errors to domain errors at store boundaries
+- Add context and logging at usecase level
+- Map to appropriate HTTP responses at handler level
+
+### External Service Integration
+- **Algolia**: Use for search indexing and full-text search capabilities
+- **OpenAI**: Use for content moderation and AI analysis
+- **DynamoDB**: Primary data store with proper GSI design
+- **S3**: File storage and content delivery
+- Always handle external service failures gracefully
+- Use fire-and-forget patterns for non-critical operations (search indexing)
+- Implement proper retry and circuit breaker patterns

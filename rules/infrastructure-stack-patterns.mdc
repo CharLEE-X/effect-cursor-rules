@@ -1,0 +1,564 @@
+---
+description: 
+globs: **/*/handler.ts
+alwaysApply: false
+---
+# Infrastructure Stack Patterns
+
+Guidelines for creating and maintaining CDK stacks for API services in the T6C project.
+
+## MANDATORY Stack Structure
+
+### Required Imports and Setup
+**EVERY stack MUST follow this exact import and setup pattern:**
+
+```typescript
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import * as cdk from 'aws-cdk-lib'
+import type * as apigateway from 'aws-cdk-lib/aws-apigateway'
+import {
+  AttributeType,
+  type ITable,
+  ProjectionType,
+} from 'aws-cdk-lib/aws-dynamodb'
+import type { Construct } from 'constructs'
+import 'source-map-support/register'
+import {
+  ApiConstruct,
+  ApiGatewayHandlerLambda,
+  BaseStack,
+  type BaseStackProps,
+  DynamoDatabaseTableWithCompositeKey,
+} from './constructs/index.js'
+import { getEnvVarOrThrow } from './util/index.js'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+```
+
+### Required Stack Class Structure
+**EVERY stack MUST extend BaseStack and follow this pattern:**
+
+```typescript
+type {Service}StackProps = {
+  // Dependencies from other stacks
+  userServiceUrl: string
+} & BaseStackProps
+
+export class {Service}Stack extends BaseStack {
+  // Public resources for other stacks
+  public readonly table: ITable
+  public readonly api: apigateway.RestApi
+
+  constructor(scope: Construct, props: {Service}StackProps) {
+    const prefix = `${props.productName}-${props.stageName}`
+    super(scope, `${prefix}-{Service}Stack`, props)
+
+    // 1. Create API Gateway using ApiConstruct
+    const {service}Api = new ApiConstruct(this, '{Service}Api', { ...props })
+    this.api = {service}Api.api
+
+    // 2. Create Database Table using DynamoDatabaseTableWithCompositeKey
+    const { table: {service}Table } = new DynamoDatabaseTableWithCompositeKey(
+      this,
+      `${prefix}-{Service}Table`,
+      {
+        tableName: `${prefix.toLowerCase()}-{service}`,
+        partitionKey: { name: 'PK', type: AttributeType.STRING },
+        sortKey: { name: 'SK', type: AttributeType.STRING },
+        stream: true,
+        globalSecondaryIndexes: [
+          {
+            indexName: 'GSI1',
+            partitionKey: { name: 'GSI1PK', type: AttributeType.STRING },
+            sortKey: { name: 'GSI1SK', type: AttributeType.STRING },
+            projectionType: ProjectionType.ALL,
+          },
+          {
+            indexName: 'GSI2',
+            partitionKey: { name: 'GSI2PK', type: AttributeType.STRING },
+            sortKey: { name: 'GSI2SK', type: AttributeType.STRING },
+            projectionType: ProjectionType.ALL,
+          },
+        ],
+      },
+    )
+    this.table = {service}Table
+
+    // 3. Common Props with proper environment variables
+    const commonProps = {
+      description: prefix,
+      apiGatewayResource: this.api.root,
+      apiKeyRequired: true,
+      env: {
+        {SERVICE}_TABLE: {service}Table.tableName,
+        USER_SERVICE_URL: props.userServiceUrl,
+        USER_SERVICE_API_KEY: getEnvVarOrThrow('USER_SERVICE_API_KEY'),
+        // Add other environment variables as needed
+      },
+    }
+
+    // 4. Register ALL handlers from packages/{service}-api/src/lambdas/
+    // ... handler registrations
+
+    // 5. Outputs
+    new cdk.CfnOutput(this, '{Service}TableName', {
+      value: {service}Table.tableName,
+    })
+  }
+}
+```
+
+## Stack Organization Principles
+
+### One Stack Per API Service
+- **ALWAYS** create a dedicated stack for each API service
+- Stack naming convention: `{ServiceName}Stack` (e.g., `BlogStack`, `UsersStack`, `AuthStack`)
+- File naming convention: `{service-name}-stack.ts` (e.g., `blog-stack.ts`, `users-stack.ts`)
+
+### Stack Dependencies
+- Define clear interfaces between stacks using props
+- Pass required URLs and resources through constructor props
+- Export public resources that other stacks need
+
+```typescript
+// ✅ CORRECT - Stack dependencies through props
+type BlogStackProps = {
+  userServiceUrl: string  // Dependency on UsersStack
+} & BaseStackProps
+
+// ✅ CORRECT - Export resources for other stacks
+export class BlogStack extends BaseStack {
+  public readonly api: apigateway.RestApi  // For FrontendStack
+  public readonly table: ITable            // For monitoring/backup stacks
+}
+```
+
+## Handler Registration Patterns
+
+### Complete Handler Coverage
+- **EVERY** lambda handler in the API package MUST be registered in its stack
+- **NO** handlers should be missing from the infrastructure
+- Use consistent naming patterns for lambda resources
+
+### Handler Registration Template
+```typescript
+const {handlerName}Lambda = new ApiGatewayHandlerLambda(
+  this,
+  `${prefix}-{service}-{action}`,
+  {
+    lambdaName: `${prefix}-{service}-{action}`,
+    method: '{HTTP_METHOD}',
+    path: 'v1/{service}/{path}',
+    entry: path.join(
+      __dirname,
+      '../../packages/{service}-api/src/lambdas/{handler-dir}/handler.ts',
+    ),
+    ...commonProps,
+  },
+)
+```
+
+### Handler Examples by HTTP Method
+
+#### GET Handlers
+```typescript
+// Single resource retrieval
+const getBlogByIdLambda = new ApiGatewayHandlerLambda(this, `${prefix}-blog-get-by-id`, {
+  method: 'GET',
+  path: 'v1/blog/{id}',
+  entry: path.join(__dirname, '../../packages/blog-api/src/lambdas/get-blog-by-id/handler.ts'),
+})
+
+// Collection retrieval
+const getAllTagsLambda = new ApiGatewayHandlerLambda(this, `${prefix}-blog-get-all-tags`, {
+  method: 'GET', 
+  path: 'v1/blog/tags',
+  entry: path.join(__dirname, '../../packages/blog-api/src/lambdas/get-all-tags/handler.ts'),
+})
+
+// Search/Query
+const searchBlogPostsLambda = new ApiGatewayHandlerLambda(this, `${prefix}-blog-search`, {
+  method: 'GET',
+  path: 'v1/blog/search', 
+  entry: path.join(__dirname, '../../packages/blog-api/src/lambdas/search/handler.ts'),
+})
+```
+
+#### POST Handlers
+```typescript
+const createBlogPostLambda = new ApiGatewayHandlerLambda(this, `${prefix}-blog-create`, {
+  method: 'POST',
+  path: 'v1/blog',
+  entry: path.join(__dirname, '../../packages/blog-api/src/lambdas/create-blog/handler.ts'),
+})
+```
+
+#### PUT Handlers
+```typescript
+const updateBlogPostLambda = new ApiGatewayHandlerLambda(this, `${prefix}-blog-update`, {
+  method: 'PUT',
+  path: 'v1/blog/{id}',
+  entry: path.join(__dirname, '../../packages/blog-api/src/lambdas/update-blog/handler.ts'),
+  timeout: cdk.Duration.seconds(30), // For long-running operations
+})
+```
+
+#### DELETE Handlers
+```typescript
+const deleteBlogPostLambda = new ApiGatewayHandlerLambda(this, `${prefix}-blog-delete`, {
+  method: 'DELETE',
+  path: 'v1/blog/{id}',
+  entry: path.join(__dirname, '../../packages/blog-api/src/lambdas/delete-blog/handler.ts'),
+})
+```
+
+## Environment Variables Pattern
+
+### Common Environment Variables
+- **ALWAYS** define common environment variables once and reuse
+- Include all required service dependencies
+- Use `getEnvVarOrThrow` for required environment variables
+
+```typescript
+const commonProps = {
+  description: prefix,
+  apiGatewayResource: this.api.root,
+  apiKeyRequired: true,
+  env: {
+    // Database
+    BLOG_TABLE: blogTable.tableName,
+    
+    // External Services
+    USER_SERVICE_URL: props.userServiceUrl,
+    USER_SERVICE_API_KEY: getEnvVarOrThrow('USER_SERVICE_API_KEY'),
+    
+    // Third-party APIs
+    ALGOLIA_APP_ID: getEnvVarOrThrow('ALGOLIA_APP_ID'),
+    ALGOLIA_SEARCH_API_KEY: getEnvVarOrThrow('ALGOLIA_SEARCH_API_KEY'),
+    ALGOLIA_WRITE_API_KEY: getEnvVarOrThrow('ALGOLIA_WRITE_API_KEY'),
+  },
+}
+```
+
+### Handler-Specific Environment Variables
+```typescript
+// Handler with additional environment variables
+const updateBlogPostLambda = new ApiGatewayHandlerLambda(this, `${prefix}-blog-update`, {
+  // ... other props
+  env: {
+    ...commonProps.env,
+    OPENAI_API_KEY: getEnvVarOrThrow('OPENAI_API_KEY'), // Additional for this handler
+  },
+})
+```
+
+## Database Permissions Pattern
+
+### Grant Appropriate Permissions
+- **READ ONLY** for GET handlers: `blogTable.grantReadData(lambda)`
+- **WRITE ONLY** for POST handlers: `blogTable.grantWriteData(lambda)`  
+- **READ + WRITE** for PUT/PATCH handlers: Both `grantReadData` and `grantWriteData`
+- **WRITE ONLY** for DELETE handlers: `blogTable.grantWriteData(lambda)`
+
+```typescript
+// ✅ CORRECT - Appropriate permissions per operation
+blogTable.grantReadData(getBlogByIdLambda.lambda)        // GET - read only
+blogTable.grantWriteData(createBlogPostLambda.lambda)    // POST - write only  
+blogTable.grantReadData(updateBlogPostLambda.lambda)     // PUT - read first
+blogTable.grantWriteData(updateBlogPostLambda.lambda)    // PUT - then write
+blogTable.grantWriteData(deleteBlogPostLambda.lambda)    // DELETE - write only
+```
+
+## Special Handler Patterns
+
+### DynamoDB Stream Handlers
+```typescript
+const dbStreamHandlerLambda = new LambdaFunction(this, `${prefix}-{service}-db-stream-handler`, {
+  runtime: Runtime.NODEJS_22_X,
+  code: Code.fromAsset(
+    path.join(__dirname, '../../packages/{service}-api/dist/lambdas/db-stream-handler'),
+  ),
+  handler: 'handler.handler',
+  memorySize: 1024,
+  deadLetterQueue: dbStreamHandlerDlq,
+  environment: commonProps.env,
+})
+
+// Grant stream permissions
+if (table.tableStreamArn) {
+  dbStreamHandlerLambda.addToRolePolicy(
+    new iam.PolicyStatement({
+      actions: [
+        'dynamodb:GetRecords',
+        'dynamodb:GetShardIterator', 
+        'dynamodb:DescribeStream',
+        'dynamodb:ListStreams',
+      ],
+      resources: [table.tableStreamArn],
+    }),
+  )
+}
+```
+
+### Long-Running Handlers
+```typescript
+// Handlers that need more time (AI processing, file operations, etc.)
+const updateBlogPostLambda = new ApiGatewayHandlerLambda(this, `${prefix}-blog-update`, {
+  // ... other props
+  timeout: cdk.Duration.seconds(30), // Increase from default 3 seconds
+})
+```
+
+## ❌ CRITICAL ANTI-PATTERNS - Never Do These
+
+### Wrong Base Class and Imports
+```typescript
+// ❌ WRONG - Using cdk.Stack instead of BaseStack
+export class CommentStack extends cdk.Stack {
+
+// ❌ WRONG - Using wrong construct imports
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
+import * as logs from 'aws-cdk-lib/aws-logs'
+
+// ❌ WRONG - Using non-existent constructs
+const lambda = new LambdaConstruct(this, 'Lambda', {})
+const api = new ApiGatewayV2LambdaConstruct(this, 'Api', {})
+
+// ❌ WRONG - Wrong props interface
+export interface CommentStackProps extends CommonStackProps {
+  userServiceUrl: string
+}
+```
+
+### Wrong Stack Structure
+```typescript
+// ❌ WRONG - Not using established constructs
+this.table = new dynamodb.Table(this, 'CommentTable', {
+  tableName: `${props.productName}-Comment-${props.stageName}`,
+  // ... manual table configuration
+})
+
+// ❌ WRONG - Manual GSI addition instead of using construct
+this.table.addGlobalSecondaryIndex({
+  indexName: 'GSI1',
+  // ... manual GSI configuration
+})
+
+// ❌ WRONG - Not using ApiConstruct
+this.api = new ApiGatewayV2LambdaConstruct(this, 'CommentApi', {
+  // ... manual API configuration
+})
+```
+
+### Wrong Environment Variables
+```typescript
+// ❌ WRONG - Hardcoded placeholder values
+const commonEnvironment = {
+  COMMENT_TABLE: this.table.tableName,
+  USER_SERVICE_API_KEY: 'placeholder', // Never use placeholders
+  ALGOLIA_APP_ID: 'placeholder',
+  OPENAI_API_KEY: 'placeholder',
+}
+
+// ❌ WRONG - Not using getEnvVarOrThrow
+USER_SERVICE_API_KEY: process.env.USER_SERVICE_API_KEY || 'default'
+```
+
+### Wrong Handler Registration
+```typescript
+// ❌ WRONG - Using non-existent constructs
+const createCommentLambda = new LambdaConstruct(this, 'CreateComment', {
+  entry: '../packages/comment-api/src/lambdas/create-comment/handler.ts',
+  environment: commonEnvironment,
+})
+
+// ❌ WRONG - Manual route configuration instead of using ApiGatewayHandlerLambda
+this.api = new ApiGatewayV2LambdaConstruct(this, 'CommentApi', {
+  routes: [
+    {
+      path: '/v1/comments',
+      method: 'POST',
+      lambda: createCommentLambda.lambda,
+    },
+  ],
+})
+```
+
+## Stack Validation Checklist
+
+### Before Deploying
+- [ ] Stack extends BaseStack (not cdk.Stack)
+- [ ] Uses correct imports from './constructs/index.js'
+- [ ] Uses ApiConstruct for API Gateway
+- [ ] Uses DynamoDatabaseTableWithCompositeKey for tables
+- [ ] Uses ApiGatewayHandlerLambda for all handlers
+- [ ] All lambda handlers from `packages/{service}-api/src/lambdas/` are registered
+- [ ] Each handler has appropriate database permissions
+- [ ] Environment variables use getEnvVarOrThrow for required values
+- [ ] HTTP methods match the handler's intended operation
+- [ ] API paths follow RESTful conventions
+- [ ] No placeholder values in environment variables
+
+### Handler Discovery Command
+```bash
+# List all handlers in an API package
+ls packages/{service}-api/src/lambdas/
+
+# Compare with handlers in stack file
+grep -o "lambdas/[^/]*/handler.ts" infra/src/{service}-stack.ts
+```
+
+## Stack Integration in app.ts
+
+### Required Import and Usage
+```typescript
+// ✅ CORRECT - Import the stack
+import { CommentStack } from './comment-stack.js'
+
+// ✅ CORRECT - Create stack with proper dependencies
+const commentStack = new CommentStack(app, {
+  ...commonProps,
+  userServiceUrl: usersStack.api.url,
+})
+
+// ✅ CORRECT - Use stack outputs in dependent stacks
+new FrontendStack(app, {
+  ...commonProps,
+  commentServiceUrl: commentStack.api.url, // Use the API URL
+})
+```
+
+## Maintenance Guidelines
+
+### When Adding New Handlers
+1. Create the handler in `packages/{service}-api/src/lambdas/{handler-name}/`
+2. **IMMEDIATELY** add it to the corresponding stack in `infra/src/{service}-stack.ts`
+3. Use ApiGatewayHandlerLambda construct (not manual Lambda + API Gateway)
+4. Grant appropriate database permissions
+5. Test the deployment
+
+### When Modifying Handlers
+1. Update the handler code
+2. Check if stack configuration needs updates (timeouts, environment variables, permissions)
+3. Update stack if needed
+
+### Stack Synchronization
+- **NEVER** have handlers in the API package that aren't in the stack
+- **NEVER** have handlers in the stack that don't exist in the API package
+- Keep the stack as the single source of truth for infrastructure
+
+## Complete Working Example
+
+```typescript
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import * as cdk from 'aws-cdk-lib'
+import type * as apigateway from 'aws-cdk-lib/aws-apigateway'
+import {
+  AttributeType,
+  type ITable,
+  ProjectionType,
+} from 'aws-cdk-lib/aws-dynamodb'
+import type { Construct } from 'constructs'
+import 'source-map-support/register'
+import {
+  ApiConstruct,
+  ApiGatewayHandlerLambda,
+  BaseStack,
+  type BaseStackProps,
+  DynamoDatabaseTableWithCompositeKey,
+} from './constructs/index.js'
+import { getEnvVarOrThrow } from './util/index.js'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+type CommentStackProps = {
+  userServiceUrl: string
+} & BaseStackProps
+
+export class CommentStack extends BaseStack {
+  public readonly table: ITable
+  public readonly api: apigateway.RestApi
+
+  constructor(scope: Construct, props: CommentStackProps) {
+    const prefix = `${props.productName}-${props.stageName}`
+    super(scope, `${prefix}-CommentStack`, props)
+
+    // 1. Create API Gateway
+    const commentApi = new ApiConstruct(this, 'CommentApi', { ...props })
+    this.api = commentApi.api
+
+    // 2. Create Database Table
+    const { table: commentTable } = new DynamoDatabaseTableWithCompositeKey(
+      this,
+      `${prefix}-CommentTable`,
+      {
+        tableName: `${prefix.toLowerCase()}-comment`,
+        partitionKey: { name: 'PK', type: AttributeType.STRING },
+        sortKey: { name: 'SK', type: AttributeType.STRING },
+        stream: true,
+        globalSecondaryIndexes: [
+          {
+            indexName: 'GSI1',
+            partitionKey: { name: 'GSI1PK', type: AttributeType.STRING },
+            sortKey: { name: 'GSI1SK', type: AttributeType.STRING },
+            projectionType: ProjectionType.ALL,
+          },
+          {
+            indexName: 'GSI2',
+            partitionKey: { name: 'GSI2PK', type: AttributeType.STRING },
+            sortKey: { name: 'GSI2SK', type: AttributeType.STRING },
+            projectionType: ProjectionType.ALL,
+          },
+        ],
+      },
+    )
+    this.table = commentTable
+
+    // 3. Common Props
+    const commonProps = {
+      description: prefix,
+      apiGatewayResource: this.api.root,
+      apiKeyRequired: true,
+      env: {
+        COMMENT_TABLE: commentTable.tableName,
+        USER_SERVICE_URL: props.userServiceUrl,
+        USER_SERVICE_API_KEY: getEnvVarOrThrow('USER_SERVICE_API_KEY'),
+        ALGOLIA_APP_ID: getEnvVarOrThrow('ALGOLIA_APP_ID'),
+        ALGOLIA_SEARCH_API_KEY: getEnvVarOrThrow('ALGOLIA_SEARCH_API_KEY'),
+        ALGOLIA_WRITE_API_KEY: getEnvVarOrThrow('ALGOLIA_WRITE_API_KEY'),
+        OPENAI_API_KEY: getEnvVarOrThrow('OPENAI_API_KEY'),
+      },
+    }
+
+    // 4. Register ALL handlers
+    const createCommentLambda = new ApiGatewayHandlerLambda(
+      this,
+      `${prefix}-comment-create`,
+      {
+        lambdaName: `${prefix}-comment-create`,
+        method: 'POST',
+        path: 'v1/comments',
+        entry: path.join(
+          __dirname,
+          '../../packages/comment-api/src/lambdas/create-comment/handler.ts',
+        ),
+        ...commonProps,
+      },
+    )
+    commentTable.grantWriteData(createCommentLambda.lambda)
+
+    // ... register all other handlers
+
+    // 5. Outputs
+    new cdk.CfnOutput(this, 'CommentTableName', {
+      value: commentTable.tableName,
+    })
+  }
+}
+```
+
+This rule ensures all stacks follow the established patterns and avoid the common mistakes that lead to compilation errors and infrastructure issues.

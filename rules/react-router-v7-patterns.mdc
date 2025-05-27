@@ -1,0 +1,477 @@
+---
+description: 
+globs: *.tsx
+alwaysApply: false
+---
+# React Router v7 (Remix) Best Practices
+
+## Overview
+React Router v7 is the evolution of Remix, providing server-side rendering, data loading, and modern routing patterns. Follow these patterns for optimal performance and user experience.
+
+## Route Structure and Organization
+
+### ✅ CORRECT Route Organization
+```typescript
+// apps/frontend/src/routes/
+├── _layout.tsx                    // Root layout
+├── _auth.tsx                      // Auth layout
+├── page/
+│   ├── index/                     // Home page
+│   │   ├── route.tsx             // Main route file
+│   │   ├── featured-blogs.tsx    // Page components
+│   │   └── hero.tsx
+│   └── about/
+│       └── route.tsx
+├── api/
+│   ├── auth/
+│   │   └── login.tsx             // API routes
+│   └── blog/
+│       └── featured.tsx
+└── ui/
+    ├── blog/
+    │   └── route.tsx             // UI routes
+    └── profile/
+        └── route.tsx
+```
+
+### ❌ WRONG Route Organization
+```typescript
+// Don't mix concerns in single files
+├── routes/
+│   ├── everything-in-one-file.tsx  // Too much in one file
+│   ├── random-structure/           // Inconsistent naming
+│   └── no-clear-separation/        // Mixed API and UI routes
+```
+
+## Data Loading Patterns
+
+### ✅ CORRECT Loader Implementation
+```typescript
+// route.tsx
+import { LoaderFunctionArgs } from 'react-router'
+import { BlogPostService } from '~/.server/services/BlogPostService'
+import { E } from '~/lib/effect'
+
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const url = new URL(request.url)
+  const page = Number(url.searchParams.get('page')) || 1
+  
+  // Use Effect-TS for data loading
+  const featuredBlogPostsPromise = E.runPromise(
+    BlogPostService.getFeaturedBlogPosts({ page, limit: 6 }).pipe(
+      E.provide(BlogPostService.Default)
+    )
+  )
+  
+  return {
+    featuredBlogPostsPromise,
+    meta: {
+      title: 'T6C - Motorcycle Community',
+      description: 'Join the ultimate motorcycle building community'
+    }
+  }
+}
+
+// Component using the data
+export default function HomePage() {
+  const { featuredBlogPostsPromise } = useLoaderData<typeof loader>()
+  
+  return (
+    <div>
+      <Suspense fallback={<LoadingSkeleton />}>
+        <Await 
+          resolve={featuredBlogPostsPromise}
+          errorElement={<ErrorComponent />}
+        >
+          {(data) => <FeaturedBlogs data={data} />}
+        </Await>
+      </Suspense>
+    </div>
+  )
+}
+```
+
+### ❌ WRONG Data Loading
+```typescript
+// Don't load data in components
+export default function HomePage() {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  
+  useEffect(() => {
+    // Don't do this - use loaders instead
+    fetchData().then(setData)
+  }, [])
+  
+  return loading ? <div>Loading...</div> : <div>{data}</div>
+}
+```
+
+## Error Handling Patterns
+
+### ✅ CORRECT Error Boundaries
+```typescript
+// route.tsx
+export const ErrorBoundary = () => {
+  const error = useRouteError()
+  const { t } = useTranslation()
+  
+  if (isRouteErrorResponse(error)) {
+    return (
+      <div className="error-container">
+        <h1>{error.status} {error.statusText}</h1>
+        <p>{error.data}</p>
+        <Link to="/">{t('common.goHome', 'Go Home')}</Link>
+      </div>
+    )
+  }
+  
+  return (
+    <div className="error-container">
+      <h1>{t('error.unexpected.title', 'Something went wrong')}</h1>
+      <p>{t('error.unexpected.description', 'An unexpected error occurred')}</p>
+      <Button onClick={() => window.location.reload()}>
+        {t('common.retry', 'Try Again')}
+      </Button>
+    </div>
+  )
+}
+
+// For Await components
+const ErrorComponent = () => {
+  const { t } = useTranslation()
+  
+  return (
+    <div className="text-center py-12">
+      <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+        <AlertCircle className="h-8 w-8 text-red-400" />
+      </div>
+      <h3 className="text-xl font-medium text-white mb-3">
+        {t('error.loading.title', 'Failed to Load')}
+      </h3>
+      <p className="text-dark-100 mb-6">
+        {t('error.loading.description', 'Please try again later')}
+      </p>
+      <Button onClick={() => window.location.reload()}>
+        {t('common.retry', 'Try Again')}
+      </Button>
+    </div>
+  )
+}
+```
+
+## Form Handling Patterns
+
+### ✅ CORRECT Form Implementation
+```typescript
+// Action for form submission
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const formData = await request.formData()
+  const intent = formData.get('intent')
+  
+  switch (intent) {
+    case 'create-post':
+      return E.runPromise(
+        BlogPostService.createPost({
+          title: formData.get('title') as string,
+          content: formData.get('content') as string,
+        }).pipe(
+          E.provide(BlogPostService.Default),
+          E.catchAll((error) => 
+            E.succeed({ error: 'Failed to create post' })
+          )
+        )
+      )
+    default:
+      throw new Response('Invalid intent', { status: 400 })
+  }
+}
+
+// Component with form
+export default function CreatePost() {
+  const actionData = useActionData<typeof action>()
+  const navigation = useNavigation()
+  const isSubmitting = navigation.state === 'submitting'
+  const { t } = useTranslation()
+  
+  return (
+    <Form method="post" className="space-y-6">
+      <input type="hidden" name="intent" value="create-post" />
+      
+      <div>
+        <label htmlFor="title">{t('form.title', 'Title')}</label>
+        <input
+          id="title"
+          name="title"
+          type="text"
+          required
+          className="form-input"
+        />
+      </div>
+      
+      <Button type="submit" disabled={isSubmitting}>
+        {isSubmitting ? t('common.saving', 'Saving...') : t('button.save', 'Save')}
+      </Button>
+      
+      {actionData?.error && (
+        <div className="error-message">{actionData.error}</div>
+      )}
+    </Form>
+  )
+}
+```
+
+## Navigation and Links
+
+### ✅ CORRECT Navigation Patterns
+```typescript
+// Use Link for internal navigation
+<Link 
+  to="/blog" 
+  className="nav-link"
+  prefetch="intent"  // Prefetch on hover
+>
+  {t('nav.blog', 'Blog')}
+</Link>
+
+// Use NavLink for active states
+<NavLink 
+  to="/blog" 
+  className={({ isActive }) => 
+    `nav-link ${isActive ? 'active' : ''}`
+  }
+>
+  {t('nav.blog', 'Blog')}
+</NavLink>
+
+// Use href() for dynamic links
+<Link to={href('/blog', { search: { page: 2 } })}>
+  Next Page
+</Link>
+
+// Use navigate for programmatic navigation
+const navigate = useNavigate()
+
+const handleSuccess = () => {
+  navigate('/blog', { replace: true })
+}
+```
+
+### ❌ WRONG Navigation
+```typescript
+// Don't use anchor tags for internal links
+<a href="/blog">Blog</a>
+
+// Don't use window.location for navigation
+window.location.href = '/blog'
+
+// Don't construct URLs manually
+<Link to={`/blog?page=${page}`}>Next</Link>
+```
+
+## Meta and SEO
+
+### ✅ CORRECT Meta Implementation
+```typescript
+// In loader
+export const loader = async () => {
+  return {
+    meta: {
+      title: 'Blog - T6C Motorcycle Community',
+      description: 'Read the latest motorcycle building guides and community stories',
+      'og:title': 'T6C Blog',
+      'og:description': 'Motorcycle building guides and community stories',
+      'og:image': '/images/blog-og.jpg',
+      'twitter:card': 'summary_large_image',
+    }
+  }
+}
+
+// Or use meta function
+export const meta: MetaFunction<typeof loader> = ({ data }) => {
+  return [
+    { title: data?.post?.title || 'T6C Blog' },
+    { name: 'description', content: data?.post?.excerpt || 'Motorcycle community' },
+    { property: 'og:title', content: data?.post?.title },
+    { property: 'og:image', content: data?.post?.coverImage },
+  ]
+}
+```
+
+## Performance Optimization
+
+### ✅ CORRECT Performance Patterns
+```typescript
+// Use Suspense for data loading
+<Suspense fallback={<Skeleton />}>
+  <Await resolve={dataPromise}>
+    {(data) => <Component data={data} />}
+  </Await>
+</Suspense>
+
+// Use lazy loading for heavy components
+const HeavyComponent = lazy(() => import('./HeavyComponent'))
+
+// Use prefetch for likely navigation
+<Link to="/blog" prefetch="intent">Blog</Link>
+
+// Use resource hints in meta
+export const links: LinksFunction = () => [
+  { rel: 'preload', href: '/fonts/inter.woff2', as: 'font', type: 'font/woff2' },
+  { rel: 'prefetch', href: '/api/featured-posts' },
+]
+```
+
+## State Management
+
+### ✅ CORRECT State Patterns
+```typescript
+// Use URL state for shareable state
+const [searchParams, setSearchParams] = useSearchParams()
+const page = Number(searchParams.get('page')) || 1
+
+const handlePageChange = (newPage: number) => {
+  setSearchParams(prev => {
+    prev.set('page', newPage.toString())
+    return prev
+  })
+}
+
+// Use fetchers for non-navigating actions
+const fetcher = useFetcher()
+
+const handleLike = (postId: string) => {
+  fetcher.submit(
+    { intent: 'like', postId },
+    { method: 'post', action: '/api/blog/like' }
+  )
+}
+
+// Use optimistic UI
+const isLiked = fetcher.formData?.get('intent') === 'like' 
+  ? true 
+  : post.isLiked
+```
+
+## Component Patterns
+
+### ✅ CORRECT Component Structure
+```typescript
+// Keep route components focused on data orchestration
+export default function BlogPage() {
+  const { posts, pagination } = useLoaderData<typeof loader>()
+  
+  return (
+    <div className="blog-page">
+      <BlogHeader />
+      <Suspense fallback={<BlogSkeleton />}>
+        <Await resolve={posts}>
+          {(postsData) => (
+            <BlogList 
+              posts={postsData} 
+              pagination={pagination}
+            />
+          )}
+        </Await>
+      </Suspense>
+    </div>
+  )
+}
+
+// Extract complex UI into separate components
+const BlogList = ({ posts, pagination }) => {
+  return (
+    <div className="space-y-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {posts.map(post => (
+          <BlogCard key={post.id} post={post} />
+        ))}
+      </div>
+      <Pagination {...pagination} />
+    </div>
+  )
+}
+```
+
+## Testing Patterns
+
+### ✅ CORRECT Testing Approach
+```typescript
+// Test loaders
+describe('blog loader', () => {
+  it('should load featured posts', async () => {
+    const request = new Request('http://localhost/blog')
+    const result = await loader({ request, params: {}, context: {} })
+    
+    expect(result.featuredBlogPostsPromise).toBeDefined()
+  })
+})
+
+// Test actions
+describe('blog action', () => {
+  it('should create post', async () => {
+    const formData = new FormData()
+    formData.set('intent', 'create-post')
+    formData.set('title', 'Test Post')
+    
+    const request = new Request('http://localhost/blog', {
+      method: 'POST',
+      body: formData
+    })
+    
+    const result = await action({ request, params: {}, context: {} })
+    expect(result.success).toBe(true)
+  })
+})
+```
+
+## Common Anti-Patterns to Avoid
+
+### ❌ WRONG Patterns
+```typescript
+// Don't use useEffect for data loading
+useEffect(() => {
+  fetchData()
+}, [])
+
+// Don't bypass the router for navigation
+window.location.href = '/new-page'
+
+// Don't put business logic in components
+const handleSubmit = async (data) => {
+  // Complex business logic here - move to action
+  const result = await api.createPost(data)
+  if (result.success) {
+    navigate('/blog')
+  }
+}
+
+// Don't ignore loading states
+{data ? <Component data={data} /> : null}
+
+// Don't hardcode URLs
+<Link to="/blog/post/123">Post</Link>
+```
+
+## Migration from Remix
+
+### Key Changes in React Router v7
+- `remix.config.js` → `react-router.config.ts`
+- Same file-based routing patterns
+- Same data loading patterns (loader/action)
+- Same component patterns
+- Enhanced TypeScript support
+- Better Vite integration
+
+### Update Imports
+```typescript
+// Old Remix imports
+import { LoaderFunction } from '@remix-run/node'
+import { useLoaderData } from '@remix-run/react'
+
+// New React Router v7 imports
+import { LoaderFunctionArgs } from 'react-router'
+import { useLoaderData } from 'react-router'
+```
+
+This rule ensures consistent, performant, and maintainable React Router v7 applications with proper data loading, error handling, and user experience patterns.

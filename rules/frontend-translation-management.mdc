@@ -1,0 +1,268 @@
+---
+description: 
+globs: *.tsx
+alwaysApply: false
+---
+# Frontend Translation Management
+
+## Overview
+Maintain consistent translation practices across the frontend application to ensure proper internationalization and user experience.
+
+## Translation File Structure
+```
+apps/frontend/public/locales/
+├── en/translation.json          # English (primary)
+├── de/translation.json          # German
+├── fr/translation.json          # French
+└── [lang]/translation.json      # Other languages
+```
+
+## Translation Key Naming Conventions
+
+### ✅ CORRECT Patterns
+```typescript
+// Hierarchical structure
+"blog.status.published"
+"user.profile.edit"
+"common.loading"
+"error.validation.required"
+
+// Action-based keys
+"button.save"
+"button.cancel" 
+"button.delete"
+
+// State-based keys
+"common.loading"
+"common.saving"
+"common.updating"
+"form.submitting"
+```
+
+### ❌ WRONG Patterns
+```typescript
+// Hardcoded text in components
+<Button>Save</Button>
+<span>Loading...</span>
+
+// Inconsistent key naming
+"saveBtn"
+"save_button"
+"SAVE_BUTTON"
+
+// Missing translations for dynamic states
+{isLoading ? "Loading..." : "Save"}
+```
+
+## Required Translation Categories
+
+### Common States
+```json
+{
+  "common": {
+    "loading": "Loading...",
+    "saving": "Saving...",
+    "updating": "Updating...",
+    "deleting": "Deleting...",
+    "submitting": "Submitting...",
+    "processing": "Processing...",
+    "success": "Success",
+    "error": "Error",
+    "retry": "Retry"
+  }
+}
+```
+
+### Form States
+```json
+{
+  "form": {
+    "submitting": "Submitting...",
+    "validating": "Validating...",
+    "saved": "Saved",
+    "unsaved": "Unsaved changes"
+  }
+}
+```
+
+### Button Actions
+```json
+{
+  "button": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "update": "Update"
+  }
+}
+```
+
+## Component Translation Patterns
+
+### ✅ CORRECT Implementation
+```typescript
+// Using loading states with translations
+const { t } = useTranslation()
+const isLoading = fetcher.state === 'submitting'
+
+return (
+  <Button disabled={isLoading}>
+    {isLoading ? t('common.updating') : t('button.save')}
+  </Button>
+)
+
+// With loading spinner
+return (
+  <Button disabled={isLoading}>
+    {isLoading && <Spinner className="mr-2" />}
+    {isLoading ? t('common.saving') : t('button.save')}
+  </Button>
+)
+```
+
+### ❌ WRONG Implementation
+```typescript
+// Hardcoded text
+<Button>Save</Button>
+
+// Mixed hardcoded and translated
+<Button>{isLoading ? "Saving..." : t('button.save')}</Button>
+
+// Missing loading states
+<Button disabled={isLoading}>{t('button.save')}</Button>
+```
+
+## Loading State Best Practices
+
+### Use Visual Indicators
+```typescript
+// Spinner + text
+{isLoading && <Spinner />}
+{isLoading ? t('common.loading') : content}
+
+// Disabled state + text change
+<Button disabled={isLoading}>
+  {isLoading ? t('common.submitting') : t('button.submit')}
+</Button>
+
+// Progress indicators for longer operations
+{isUploading && (
+  <div>
+    <ProgressBar value={uploadProgress} />
+    <span>{t('common.uploading')} {uploadProgress}%</span>
+  </div>
+)}
+```
+
+### Context-Specific Loading States
+```typescript
+// Different loading messages for different actions
+const getLoadingText = (action: string) => {
+  switch (action) {
+    case 'save': return t('common.saving')
+    case 'delete': return t('common.deleting')
+    case 'update': return t('common.updating')
+    default: return t('common.loading')
+  }
+}
+```
+
+## Translation Maintenance Rules
+
+### 1. Always Use Translation Keys
+- Never hardcode user-facing text
+- Use `t()` function for all text content
+- Include loading states in translations
+
+### 2. Consistent Key Structure
+- Follow hierarchical naming: `section.subsection.key`
+- Use descriptive, action-based names
+- Group related translations together
+
+### 3. Loading State Coverage
+- Every async action needs loading text
+- Use appropriate loading indicators (spinners, progress bars)
+- Disable interactions during loading states
+
+### 4. Multi-Language Support
+- Add new keys to ALL language files
+- Use placeholders for dynamic content: `{{variable}}`
+- Test with longer translations (German, French)
+
+## Implementation Checklist
+
+### For New Components
+- [ ] All text uses `t()` function
+- [ ] Loading states have translations
+- [ ] Error states have translations
+- [ ] Success states have translations
+- [ ] Interactive elements show loading feedback
+
+### For Existing Components
+- [ ] Replace hardcoded text with translation keys
+- [ ] Add missing loading state translations
+- [ ] Ensure consistent key naming
+- [ ] Test with different languages
+
+### For New Features
+- [ ] Plan translation structure before implementation
+- [ ] Add keys to all language files
+- [ ] Include loading/error/success states
+- [ ] Test with longest translations
+
+## Common Translation Keys to Always Include
+
+```json
+{
+  "common": {
+    "loading": "Loading...",
+    "saving": "Saving...",
+    "updating": "Updating...",
+    "deleting": "Deleting...",
+    "submitting": "Submitting...",
+    "processing": "Processing...",
+    "uploading": "Uploading...",
+    "downloading": "Downloading...",
+    "success": "Success",
+    "error": "Error",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "confirm": "Confirm"
+  },
+  "button": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "update": "Update",
+    "submit": "Submit",
+    "reset": "Reset"
+  },
+  "form": {
+    "submitting": "Submitting...",
+    "validating": "Validating...",
+    "saved": "Saved",
+    "unsaved": "Unsaved changes",
+    "required": "Required",
+    "optional": "Optional"
+  }
+}
+```
+
+## Error Prevention
+
+### Linting Rules
+- Set up ESLint rules to catch hardcoded strings
+- Use TypeScript for translation key validation
+- Implement translation key coverage checks
+
+### Code Review Checklist
+- All user-facing text uses translations
+- Loading states are properly handled
+- New translation keys added to all language files
+- Consistent naming conventions followed
+
+This rule ensures consistent, maintainable, and user-friendly internationalization across the entire frontend application.

@@ -1,0 +1,291 @@
+---
+description: 
+globs: **/*.api-client.ts
+alwaysApply: false
+---
+# AI Tools Maintenance Rule
+
+## AI Assistant Authority
+
+As the AI assistant, I have the **authority and responsibility** to automatically maintain AI tools in sync with the BlogPostService when I detect changes that would make the tools outdated or incomplete.
+
+## When to Update AI Tools
+
+### Automatic Updates Should Occur When:
+
+1. **New BlogPostService Methods Added**
+   - New public methods in `blog.api-client.ts`
+   - New API endpoints that should be exposed as tools
+   - New functionality that would benefit AI agents
+
+2. **Method Signatures Changed**
+   - Parameter types modified
+   - Return types updated
+   - Input/output schemas changed
+
+3. **Method Removed or Deprecated**
+   - Methods no longer available in BlogPostService
+   - Deprecated endpoints that should be removed
+
+4. **Schema Updates**
+   - New input/output types in blog-domain
+   - Updated validation requirements
+   - New branded types or constraints
+
+## AI Tool Structure Pattern
+
+### Standard Tool Template
+Every AI tool MUST follow this exact pattern:
+
+```typescript
+import { /* Required types */ } from '@t6c/blog-domain' // or '@t6c/domain-common'
+import { AiTool, ToolError } from '@t6c/lib-ai'
+import { Effect, String as S, Schema } from 'effect'
+import { BlogPostService } from '../blog/index.js'
+
+const tool = AiTool.make('ToolNameTool', {
+  success: Schema.String,
+  failure: ToolError,
+  parameters: Schema.Struct({
+    // Define parameters based on method signature
+  }).fields,
+  description: S.stripMargin(`
+    | Clear description of what the tool does.
+    | Include parameter explanations if complex.
+    | Mention return value format.
+  `),
+})
+
+const handler = ({
+  // Parameters matching the schema
+}: {
+  // TypeScript types for parameters
+}): Effect.Effect<string> =>
+  Effect.gen(function* () {
+    const blogPostService = yield* BlogPostService
+    const result = yield* blogPostService.methodName(/* parameters */)
+    return `Success message: ${JSON.stringify(result)}`
+  }).pipe(
+    Effect.catchAll((e) =>
+      Effect.succeed(`Error message with context: ${e}`),
+    ),
+    Effect.provide(BlogPostService.Default),
+  )
+
+export const ToolName = {
+  tool,
+  handler,
+}
+```
+
+### Tool Naming Conventions
+- **Tool Name**: PascalCase ending with "Tool" (e.g., `GetBlogByIdTool`)
+- **Export Name**: PascalCase without "Tool" suffix (e.g., `GetBlogById`)
+- **File Name**: kebab-case matching the action (e.g., `get-blog-by-id.ts`)
+
+### Parameter Handling Patterns
+
+#### Simple ID Parameters
+```typescript
+parameters: Schema.Struct({
+  blogPostId: Schema.String,
+}).fields,
+
+// Handler
+const result = yield* blogPostService.getById(BlogPostId.make(blogPostId))
+```
+
+#### Complex Input Objects
+```typescript
+parameters: Schema.Struct({
+  input: GetBlogPageInput,
+}).fields,
+
+// Handler
+const result = yield* blogPostService.getPage(input)
+```
+
+#### Multiple Simple Parameters
+```typescript
+parameters: Schema.Struct({
+  blogPostId: Schema.String,
+  userId: Schema.String,
+}).fields,
+
+// Handler
+const result = yield* blogPostService.like(
+  BlogPostId.make(blogPostId),
+  UserId.make(userId),
+)
+```
+
+#### Optional Parameters with Defaults
+```typescript
+parameters: Schema.Struct({
+  input: Schema.optional(GetTagsInput),
+}).fields,
+
+// Handler
+const result = yield* blogPostService.getAllTags(input)
+```
+
+## Method-to-Tool Mapping
+
+### Current BlogPostService Methods and Their Tools
+
+| BlogPostService Method | Tool Name | File Name | Status |
+|----------------------|-----------|-----------|---------|
+| `createDraft` | `CreateBlogPostTool` | `create-blog.ts` | ✅ Exists |
+| `getPage` | `GetBlogPageTool` | `get-blog-page.ts` | ✅ Exists |
+| `getById` | `GetBlogByIdTool` | `get-blog-by-id.ts` | ✅ Exists |
+| `getByAuthorId` | `GetBlogByAuthorIdTool` | `get-blog-by-author-id.ts` | ✅ Exists |
+| `getBySlug` | `GetBlogBySlugTool` | `get-blog-by-slug.ts` | ✅ Exists |
+| `getFeaturedBlogPosts` | `GetFeaturedBlogPostsTool` | `get-featured-blog-posts.ts` | ✅ Exists |
+| `getRecentBlogPosts` | `GetRecentBlogPostsTool` | `get-recent-blog-posts.ts` | ✅ Exists |
+| `getAllTags` | `GetAllTagsTool` | `get-all-tags.ts` | ✅ Exists |
+| `getAllCategories` | `GetAllCategoriesTool` | `get-all-categories.ts` | ✅ Exists |
+| `search` | `SearchBlogTool` | `search-blog.ts` | ✅ Exists |
+| `updateAttributes` | `UpdateBlogPostTool` | `update-blog.ts` | ✅ Exists |
+| `view` | `ViewBlogPostTool` | `view-blog.ts` | ✅ Exists |
+| `like` | `LikeBlogPostTool` | `like-blog.ts` | ✅ Exists |
+| `dislike` | `DislikeBlogPostTool` | `dislike-blog.ts` | ✅ Exists |
+| `delete` | `DeleteBlogPostTool` | `delete-blog.ts` | ✅ Exists |
+
+## Error Handling Patterns
+
+### Standard Error Handling
+```typescript
+.pipe(
+  Effect.catchAll((e) =>
+    Effect.succeed(`Error message with context: ${e}`),
+  ),
+  Effect.provide(BlogPostService.Default),
+)
+```
+
+### Context-Specific Error Messages
+- Include relevant parameter values in error messages
+- Use descriptive action words (fetching, updating, creating, etc.)
+- Maintain consistent error message format
+
+```typescript
+// ✅ CORRECT - Descriptive with context
+Effect.succeed(`Error fetching blog post with ID ${blogPostId}: ${e}`)
+Effect.succeed(`Error updating blog post ${blogPostId} with patches ${JSON.stringify(patches)}: ${e}`)
+
+// ❌ WRONG - Generic without context
+Effect.succeed(`Error: ${e}`)
+Effect.succeed(`Something went wrong`)
+```
+
+## Success Message Patterns
+
+### Standard Success Messages
+```typescript
+// For operations that return data
+return `Blog post found: ${JSON.stringify(result)}`
+return `Blog posts found: ${JSON.stringify(result)}`
+
+// For operations that modify state
+return `Blog post updated successfully: ${JSON.stringify(result)}`
+return `Blog post liked successfully: ${JSON.stringify(result)}`
+
+// For void operations
+return `View added to blog post ${blogPostId} successfully.`
+return `Deleted blog post with blogPostId ${blogPostId}.`
+```
+
+## Description Writing Guidelines
+
+### Tool Description Format
+```typescript
+description: S.stripMargin(`
+  | Primary action description in present tense.
+  | Secondary details about what is returned.
+  | 
+  | Input parameters (if complex):
+  | - param1: Description with type info
+  | - param2: Description with examples
+  | 
+  | Additional context or constraints if needed.
+`),
+```
+
+### Description Content Rules
+- **First line**: Clear action description (e.g., "Retrieves a specific blog post by its ID")
+- **Second line**: Return value description (e.g., "Returns the full blog post with author information")
+- **Parameter section**: Only for complex inputs with multiple fields
+- **Examples**: Include format examples for complex parameters (e.g., slug format)
+
+## Index File Maintenance
+
+### Export Pattern
+The `tools/index.ts` file MUST export all tools in alphabetical order:
+
+```typescript
+export * from './create-blog.js'
+export * from './delete-blog.js'
+export * from './dislike-blog.js'
+export * from './get-all-categories.js'
+export * from './get-all-tags.js'
+export * from './get-blog-by-author-id.js'
+export * from './get-blog-by-id.js'
+export * from './get-blog-by-slug.js'
+export * from './get-blog-page.js'
+export * from './get-featured-blog-posts.js'
+export * from './get-recent-blog-posts.js'
+export * from './like-blog.js'
+export * from './search-blog.js'
+export * from './update-blog.js'
+export * from './view-blog.js'
+```
+
+## Maintenance Triggers
+
+### When to Create New Tools
+- New public method added to BlogPostService
+- Existing method signature significantly changed
+- New use case that would benefit AI agents
+
+### When to Update Existing Tools
+- Method parameters changed
+- Return type modified
+- Input/output schemas updated
+- Method renamed
+
+### When to Remove Tools
+- Method removed from BlogPostService
+- Method deprecated and no longer functional
+- Tool functionality merged into another tool
+
+## Quality Standards
+
+### Tool Quality Checklist
+- [ ] Follows standard template pattern
+- [ ] Uses correct naming conventions
+- [ ] Has descriptive tool description
+- [ ] Handles errors appropriately
+- [ ] Provides meaningful success messages
+- [ ] Uses proper branded types for IDs
+- [ ] Exports correctly in index.ts
+- [ ] Matches BlogPostService method signature exactly
+
+### Testing Considerations
+- Tools should be testable with mock BlogPostService
+- Error scenarios should be handled gracefully
+- Success scenarios should return meaningful data
+- Parameter validation should match service expectations
+
+## Communication
+
+### When Updating Tools
+- Briefly mention which tools were added/updated/removed
+- Explain the reason for the change (new method, signature change, etc.)
+- Reference the specific BlogPostService method that triggered the update
+
+### Example Communication
+```
+"I've added 9 new AI tools to match all BlogPostService methods: GetBlogById, GetBlogBySlug, GetBlogByAuthorId, GetBlogPage, GetFeaturedBlogPosts, GetRecentBlogPosts, LikeBlogPost, DislikeBlogPost, and ViewBlogPost. All tools follow the standard pattern and are now exported in the index file."
+```
+
+This rule ensures that AI tools remain synchronized with the BlogPostService and provide comprehensive coverage of all available functionality for AI agents.

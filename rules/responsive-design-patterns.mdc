@@ -1,0 +1,628 @@
+---
+description: 
+globs: *.tsx
+alwaysApply: false
+---
+# Responsive Design Patterns
+
+## Overview
+Ensure all screens look great and function properly across mobile, tablet, and desktop devices. Follow mobile-first design principles with progressive enhancement.
+
+## Mobile-First Approach
+
+### ✅ CORRECT Mobile-First Design
+```typescript
+// Start with mobile styles, then enhance for larger screens
+<div className="
+  // Mobile (default)
+  px-4 py-6 text-sm space-y-4
+  
+  // Tablet (sm: 640px+)
+  sm:px-6 sm:py-8 sm:text-base sm:space-y-6
+  
+  // Desktop (lg: 1024px+)
+  lg:px-8 lg:py-12 lg:text-lg lg:space-y-8
+  
+  // Large Desktop (xl: 1280px+)
+  xl:px-12 xl:py-16
+">
+  Content
+</div>
+
+// Grid layouts - responsive columns
+<div className="
+  grid gap-4
+  grid-cols-1          // Mobile: 1 column
+  sm:grid-cols-2       // Tablet: 2 columns
+  lg:grid-cols-3       // Desktop: 3 columns
+  xl:grid-cols-4       // Large: 4 columns
+">
+  {items.map(item => <Card key={item.id} {...item} />)}
+</div>
+```
+
+### ❌ WRONG Desktop-First Approach
+```typescript
+// Don't start with desktop styles
+<div className="
+  px-12 py-16 text-lg    // Desktop first
+  lg:px-8 lg:py-12       // Then scale down
+  sm:px-4 sm:py-6        // Mobile last
+">
+  Content
+</div>
+```
+
+## Responsive Typography
+
+### ✅ CORRECT Typography Scaling
+```typescript
+// Headings with proper scaling
+<h1 className="
+  text-2xl font-bold leading-tight    // Mobile
+  sm:text-3xl sm:leading-tight        // Tablet
+  md:text-4xl md:leading-tight        // Medium
+  lg:text-5xl lg:leading-tight        // Desktop
+  xl:text-6xl xl:leading-tight        // Large
+">
+  Main Heading
+</h1>
+
+// Body text with readable line heights
+<p className="
+  text-sm leading-relaxed             // Mobile
+  sm:text-base sm:leading-relaxed     // Tablet
+  lg:text-lg lg:leading-relaxed       // Desktop
+  max-w-prose                         // Optimal reading width
+">
+  Body content with proper line spacing for readability.
+</p>
+
+// Responsive text alignment
+<div className="
+  text-center                         // Mobile: center
+  sm:text-left                        // Tablet+: left align
+">
+  Content
+</div>
+```
+
+### ❌ WRONG Typography Patterns
+```typescript
+// Don't use fixed sizes without responsive scaling
+<h1 className="text-6xl">Heading</h1>
+
+// Don't ignore line height and readability
+<p className="text-xs leading-none">Hard to read text</p>
+
+// Don't use overly long line lengths
+<p className="w-full">Very long lines are hard to read on desktop</p>
+```
+
+## Layout Patterns
+
+### ✅ CORRECT Responsive Layouts
+```typescript
+// Container with proper max-widths
+<div className="
+  container mx-auto px-4              // Mobile padding
+  sm:px-6                             // Tablet padding
+  lg:px-8                             // Desktop padding
+  max-w-7xl                           // Maximum width
+">
+  Content
+</div>
+
+// Flexible navigation
+<nav className="
+  flex flex-col space-y-4             // Mobile: vertical stack
+  sm:flex-row sm:space-y-0 sm:space-x-6  // Tablet+: horizontal
+  sm:items-center                     // Align items
+">
+  <NavItem />
+  <NavItem />
+</nav>
+
+// Responsive hero sections
+<section className="
+  py-12 px-4                          // Mobile spacing
+  sm:py-16 sm:px-6                    // Tablet spacing
+  md:py-20 md:px-8                    // Desktop spacing
+  lg:py-24 lg:px-12                   // Large spacing
+">
+  <div className="
+    text-center                       // Mobile: center
+    lg:text-left                      // Desktop: left align
+    max-w-4xl mx-auto                 // Constrain width
+    lg:max-w-none                     // Remove constraint on large
+  ">
+    <h1>Hero Title</h1>
+    <p>Hero description</p>
+  </div>
+</section>
+```
+
+## Component Responsive Patterns
+
+### ✅ CORRECT Component Responsiveness
+```typescript
+// Responsive cards
+const BlogCard = ({ post }) => (
+  <article className="
+    bg-white rounded-lg shadow-md overflow-hidden
+    hover:shadow-lg transition-shadow duration-300
+    
+    // Mobile: full width with padding
+    p-4 mb-6
+    
+    // Tablet: adjust padding and margins
+    sm:p-6 sm:mb-8
+    
+    // Desktop: larger padding
+    lg:p-8
+  ">
+    <div className="
+      flex flex-col                   // Mobile: stack vertically
+      sm:flex-row sm:items-center     // Tablet+: horizontal layout
+      gap-4 sm:gap-6
+    ">
+      <img 
+        src={post.image} 
+        alt={post.title}
+        className="
+          w-full h-48                 // Mobile: full width
+          sm:w-32 sm:h-32 sm:flex-shrink-0  // Tablet: fixed size
+          lg:w-40 lg:h-40             // Desktop: larger
+          object-cover rounded
+        "
+      />
+      <div className="flex-1">
+        <h3 className="
+          text-lg font-semibold       // Mobile
+          sm:text-xl                  // Tablet
+          lg:text-2xl                 // Desktop
+          mb-2
+        ">
+          {post.title}
+        </h3>
+        <p className="
+          text-sm text-gray-600       // Mobile
+          sm:text-base                // Tablet+
+          line-clamp-3                // Limit lines
+        ">
+          {post.excerpt}
+        </p>
+      </div>
+    </div>
+  </article>
+)
+
+// Responsive buttons
+const Button = ({ children, size = 'md', ...props }) => {
+  const sizeClasses = {
+    sm: 'px-3 py-2 text-sm',
+    md: 'px-4 py-2 text-base sm:px-6 sm:py-3',
+    lg: 'px-6 py-3 text-lg sm:px-8 sm:py-4'
+  }
+  
+  return (
+    <button 
+      className={`
+        ${sizeClasses[size]}
+        rounded-lg font-medium transition-colors
+        w-full                        // Mobile: full width
+        sm:w-auto                     // Tablet+: auto width
+      `}
+      {...props}
+    >
+      {children}
+    </button>
+  )
+}
+```
+
+## Navigation Patterns
+
+### ✅ CORRECT Responsive Navigation
+```typescript
+// Mobile-first navigation with hamburger menu
+const Navbar = () => {
+  const [isOpen, setIsOpen] = useState(false)
+  
+  return (
+    <nav className="bg-white shadow-sm border-b">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          {/* Logo */}
+          <Link to="/" className="flex-shrink-0">
+            <img 
+              src="/logo.svg" 
+              alt="Logo"
+              className="
+                h-8 w-auto                // Mobile
+                sm:h-10                   // Tablet+
+              "
+            />
+          </Link>
+          
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex md:items-center md:space-x-8">
+            <NavLink to="/blog">Blog</NavLink>
+            <NavLink to="/community">Community</NavLink>
+            <NavLink to="/shop">Shop</NavLink>
+          </div>
+          
+          {/* Mobile menu button */}
+          <button
+            onClick={() => setIsOpen(!isOpen)}
+            className="
+              md:hidden p-2 rounded-md
+              hover:bg-gray-100 transition-colors
+            "
+          >
+            {isOpen ? <X size={24} /> : <Menu size={24} />}
+          </button>
+          
+          {/* Desktop auth buttons */}
+          <div className="hidden md:flex md:items-center md:space-x-4">
+            <Button variant="ghost">Sign In</Button>
+            <Button>Sign Up</Button>
+          </div>
+        </div>
+        
+        {/* Mobile Navigation Menu */}
+        {isOpen && (
+          <div className="md:hidden border-t bg-white">
+            <div className="px-2 pt-2 pb-3 space-y-1">
+              <MobileNavLink to="/blog">Blog</MobileNavLink>
+              <MobileNavLink to="/community">Community</MobileNavLink>
+              <MobileNavLink to="/shop">Shop</MobileNavLink>
+              
+              {/* Mobile auth buttons */}
+              <div className="pt-4 space-y-2">
+                <Button variant="ghost" className="w-full">Sign In</Button>
+                <Button className="w-full">Sign Up</Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </nav>
+  )
+}
+```
+
+## Form Responsiveness
+
+### ✅ CORRECT Responsive Forms
+```typescript
+const ContactForm = () => (
+  <form className="
+    space-y-4                         // Mobile spacing
+    sm:space-y-6                      // Tablet spacing
+    max-w-lg mx-auto                  // Mobile: constrained width
+    lg:max-w-2xl                      // Desktop: wider
+  ">
+    {/* Form grid */}
+    <div className="
+      grid gap-4                      // Mobile: single column
+      sm:grid-cols-2 sm:gap-6         // Tablet: two columns
+    ">
+      <div>
+        <label className="block text-sm font-medium mb-2">
+          First Name
+        </label>
+        <input 
+          type="text"
+          className="
+            w-full px-3 py-2            // Mobile
+            sm:px-4 sm:py-3             // Tablet
+            border rounded-lg
+            focus:ring-2 focus:ring-blue-500
+          "
+        />
+      </div>
+      
+      <div>
+        <label className="block text-sm font-medium mb-2">
+          Last Name
+        </label>
+        <input 
+          type="text"
+          className="
+            w-full px-3 py-2
+            sm:px-4 sm:py-3
+            border rounded-lg
+            focus:ring-2 focus:ring-blue-500
+          "
+        />
+      </div>
+    </div>
+    
+    {/* Full width fields */}
+    <div>
+      <label className="block text-sm font-medium mb-2">
+        Message
+      </label>
+      <textarea 
+        rows={4}
+        className="
+          w-full px-3 py-2
+          sm:px-4 sm:py-3
+          border rounded-lg resize-none
+          focus:ring-2 focus:ring-blue-500
+        "
+      />
+    </div>
+    
+    {/* Submit button */}
+    <Button 
+      type="submit" 
+      className="
+        w-full                        // Mobile: full width
+        sm:w-auto sm:px-8             // Tablet+: auto width
+      "
+    >
+      Send Message
+    </Button>
+  </form>
+)
+```
+
+## Image and Media Responsiveness
+
+### ✅ CORRECT Responsive Media
+```typescript
+// Responsive images with proper aspect ratios
+<div className="
+  relative overflow-hidden rounded-lg
+  aspect-video                        // 16:9 aspect ratio
+  sm:aspect-[4/3]                     // 4:3 on tablet
+  lg:aspect-video                     // Back to 16:9 on desktop
+">
+  <img 
+    src={image.src}
+    alt={image.alt}
+    className="
+      absolute inset-0 w-full h-full
+      object-cover                    // Maintain aspect ratio
+      hover:scale-105 transition-transform duration-300
+    "
+  />
+</div>
+
+// Responsive video embeds
+<div className="
+  relative overflow-hidden rounded-lg
+  aspect-video                        // Maintain 16:9 ratio
+  w-full
+  max-w-4xl mx-auto                   // Center and constrain
+">
+  <iframe 
+    src={videoUrl}
+    className="absolute inset-0 w-full h-full"
+    allowFullScreen
+  />
+</div>
+
+// Responsive image galleries
+<div className="
+  grid gap-2                          // Mobile: tight spacing
+  sm:gap-4                            // Tablet: more spacing
+  grid-cols-2                         // Mobile: 2 columns
+  sm:grid-cols-3                      // Tablet: 3 columns
+  lg:grid-cols-4                      // Desktop: 4 columns
+">
+  {images.map(image => (
+    <div key={image.id} className="aspect-square overflow-hidden rounded">
+      <img 
+        src={image.thumbnail}
+        alt={image.alt}
+        className="w-full h-full object-cover hover:scale-110 transition-transform"
+      />
+    </div>
+  ))}
+</div>
+```
+
+## Spacing and Sizing
+
+### ✅ CORRECT Responsive Spacing
+```typescript
+// Section spacing
+<section className="
+  py-8 px-4                           // Mobile
+  sm:py-12 sm:px-6                    // Tablet
+  lg:py-16 lg:px-8                    // Desktop
+  xl:py-20 xl:px-12                   // Large desktop
+">
+  Content
+</section>
+
+// Component spacing
+<div className="
+  space-y-4                           // Mobile: tight spacing
+  sm:space-y-6                        // Tablet: medium spacing
+  lg:space-y-8                        // Desktop: loose spacing
+">
+  <Component />
+  <Component />
+</div>
+
+// Responsive margins and padding
+<div className="
+  m-4 p-4                             // Mobile
+  sm:m-6 sm:p-6                       // Tablet
+  lg:m-8 lg:p-8                       // Desktop
+  xl:m-12 xl:p-12                     // Large
+">
+  Content
+</div>
+```
+
+## Touch and Interaction
+
+### ✅ CORRECT Touch-Friendly Design
+```typescript
+// Touch-friendly button sizes
+<button className="
+  min-h-[44px]                        // Minimum touch target
+  px-4 py-3                           // Adequate padding
+  sm:min-h-[48px] sm:px-6 sm:py-4     // Larger on bigger screens
+  rounded-lg
+  active:scale-95                     // Touch feedback
+  transition-transform
+">
+  Touch Me
+</button>
+
+// Swipeable components for mobile
+const ImageCarousel = ({ images }) => {
+  return (
+    <div className="
+      overflow-x-auto                 // Enable horizontal scroll
+      scrollbar-hide                  // Hide scrollbar
+      -mx-4 px-4                      // Extend to edges
+      sm:mx-0 sm:px-0                 // Reset on larger screens
+    ">
+      <div className="
+        flex gap-4                    // Horizontal layout
+        sm:grid sm:grid-cols-2        // Grid on tablet
+        lg:grid-cols-3                // More columns on desktop
+      ">
+        {images.map(image => (
+          <div 
+            key={image.id}
+            className="
+              flex-shrink-0 w-64       // Fixed width for scrolling
+              sm:w-auto                // Auto width in grid
+            "
+          >
+            <img src={image.src} alt={image.alt} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+```
+
+## Performance Considerations
+
+### ✅ CORRECT Performance Patterns
+```typescript
+// Responsive images with loading optimization
+<img 
+  src={image.src}
+  srcSet={`
+    ${image.small} 480w,
+    ${image.medium} 768w,
+    ${image.large} 1024w,
+    ${image.xlarge} 1280w
+  `}
+  sizes="
+    (max-width: 480px) 100vw,
+    (max-width: 768px) 50vw,
+    (max-width: 1024px) 33vw,
+    25vw
+  "
+  alt={image.alt}
+  loading="lazy"                      // Lazy load images
+  className="w-full h-auto"
+/>
+
+// Conditional rendering for mobile vs desktop
+const Navigation = () => {
+  const [isMobile, setIsMobile] = useState(false)
+  
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+  
+  return isMobile ? <MobileNav /> : <DesktopNav />
+}
+```
+
+## Testing Responsive Design
+
+### ✅ CORRECT Testing Approach
+```typescript
+// Test responsive breakpoints
+describe('Responsive Component', () => {
+  it('should display mobile layout on small screens', () => {
+    cy.viewport(375, 667) // iPhone SE
+    cy.visit('/page')
+    cy.get('[data-testid="mobile-menu"]').should('be.visible')
+    cy.get('[data-testid="desktop-menu"]').should('not.be.visible')
+  })
+  
+  it('should display desktop layout on large screens', () => {
+    cy.viewport(1280, 720) // Desktop
+    cy.visit('/page')
+    cy.get('[data-testid="desktop-menu"]').should('be.visible')
+    cy.get('[data-testid="mobile-menu"]').should('not.be.visible')
+  })
+})
+
+// Test touch interactions
+it('should handle touch gestures', () => {
+  cy.viewport('iphone-x')
+  cy.get('[data-testid="carousel"]')
+    .trigger('touchstart', { touches: [{ clientX: 100, clientY: 100 }] })
+    .trigger('touchmove', { touches: [{ clientX: 50, clientY: 100 }] })
+    .trigger('touchend')
+})
+```
+
+## Common Responsive Anti-Patterns
+
+### ❌ WRONG Patterns to Avoid
+```typescript
+// Don't use fixed pixel values without responsive alternatives
+<div className="w-[800px] h-[600px]">Fixed size</div>
+
+// Don't ignore mobile navigation
+<nav className="flex space-x-8">
+  {/* This breaks on mobile */}
+</nav>
+
+// Don't use tiny touch targets
+<button className="w-4 h-4 p-1">Too small</button>
+
+// Don't ignore content overflow
+<div className="w-full">
+  <div className="w-[1200px]">Overflows on mobile</div>
+</div>
+
+// Don't use desktop-only interactions
+<div onHover={handleHover}>Hover only</div>
+
+// Don't ignore loading states on slow connections
+{data && <Component data={data} />}
+```
+
+## Breakpoint Reference
+
+### Standard Tailwind Breakpoints
+```typescript
+// Mobile First Breakpoints
+sm: '640px'   // Small tablets
+md: '768px'   // Tablets
+lg: '1024px'  // Small desktops
+xl: '1280px'  // Large desktops
+2xl: '1536px' // Extra large screens
+
+// Usage examples
+className="
+  text-sm      // Mobile (default)
+  sm:text-base // 640px and up
+  md:text-lg   // 768px and up
+  lg:text-xl   // 1024px and up
+  xl:text-2xl  // 1280px and up
+"
+```
+
+This rule ensures all components and layouts work seamlessly across all device sizes with proper touch interactions, readable typography, and optimal user experience.
