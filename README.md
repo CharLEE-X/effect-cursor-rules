@@ -1,0 +1,1 @@
+# effect-cursor-rules
